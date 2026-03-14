@@ -18,9 +18,9 @@ const nodeTypes = { topicNode: TopicNode };
 
 const EXAMPLES = ['octopus cognition', 'medieval dentistry', 'Soviet vending machines', 'bioluminescent fungi'];
 
-// Node dimensions must match the CSS
-const NODE_WIDTH = 220;
-const NODE_HEIGHT = 160;
+// Node dimensions — must be >= actual rendered size so dagre spaces correctly
+const NODE_WIDTH = 230;
+const NODE_HEIGHT = 250;
 
 function buildEdge(sourceId, targetId) {
   return {
@@ -37,7 +37,7 @@ function buildEdge(sourceId, targetId) {
 function applyDagreLayout(nodes, edges) {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: 'TB', nodesep: 60, ranksep: 90, marginx: 40, marginy: 40 });
+  g.setGraph({ rankdir: 'TB', nodesep: 50, ranksep: 80, marginx: 40, marginy: 40 });
 
   nodes.forEach(n => g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT }));
   edges.forEach(e => g.setEdge(e.source, e.target));
