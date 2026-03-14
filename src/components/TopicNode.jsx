@@ -16,6 +16,10 @@ export default function TopicNode({ data }) {
         <div className="node-connection">{connection}</div>
       )}
 
+      {data.error && (
+        <div className="node-error">⚠️ {data.error}</div>
+      )}
+
       {!expanded ? (
         <button
           className="node-expand-btn"
@@ -27,6 +31,8 @@ export default function TopicNode({ data }) {
               <span className="spinner-icon" />
               Exploring…
             </>
+          ) : data.error ? (
+            <>↺ Retry</>
           ) : (
             <>+ Dive deeper</>
           )}

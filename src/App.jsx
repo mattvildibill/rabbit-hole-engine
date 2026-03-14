@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -16,7 +16,6 @@ import TopicNode from './components/TopicNode';
 const nodeTypes = { topicNode: TopicNode };
 
 const EXAMPLES = ['octopus cognition', 'medieval dentistry', 'Soviet vending machines', 'bioluminescent fungi'];
-
 const CHILD_SPACING = 250;
 const CHILD_Y_OFFSET = 210;
 
@@ -44,15 +43,15 @@ function childPositions(parentX, parentY, count) {
 function FlowCanvas({ rootTopic, onReset }) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const idRef = useRef(0);
   const { fitView } = useReactFlow();
+  const idRef = useRef(0);
   const initialized = useRef(false);
 
-  const newId = () => `n${++idRef.current}`;
+  const newId = useCallback(() => `n${++idRef.current}`, []);
 
   const expandNode = useCallback(async (nodeId, topic, parentTopic, pos) => {
     setNodes(ns =>
-      ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, loading: true } } : n)
+      ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, loading: true, error: null } } : n)
     );
 
     try {
@@ -61,9 +60,10 @@ function FlowCanvas({ rootTopic, onReset }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic, parentTopic }),
       });
-      const { subtopics, error } = await res.json();
-      if (error) throw new Error(error);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
 
+      const { subtopics } = json;
       const positions = childPositions(pos.x, pos.y, subtopics.length);
 
       const newNodes = subtopics.map((sub, i) => {
@@ -76,10 +76,11 @@ function FlowCanvas({ rootTopic, onReset }) {
             topic: sub.title,
             connection: sub.connection,
             emoji: sub.curiosity,
-            onExpand: () => expandNode(id, sub.title, topic, positions[i]),
             loading: false,
             isRoot: false,
             expanded: false,
+            error: null,
+            onExpand: () => expandNode(id, sub.title, topic, positions[i]),
           },
         };
       });
@@ -93,40 +94,45 @@ function FlowCanvas({ rootTopic, onReset }) {
         ...newNodes,
       ]);
       setEdges(es => [...es, ...newEdges]);
-
       setTimeout(() => fitView({ duration: 600, padding: 0.15 }), 80);
     } catch (err) {
-      console.error(err);
+      console.error('Expand error:', err);
       setNodes(ns =>
-        ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, loading: false } } : n)
+        ns.map(n =>
+          n.id === nodeId
+            ? { ...n, data: { ...n.data, loading: false, error: err.message } }
+            : n
+        )
       );
     }
-  }, [setNodes, setEdges, fitView]);
+  }, [setNodes, setEdges, fitView, newId]);
 
-  // Bootstrap root node once
-  if (!initialized.current) {
+  // Initialize root node and auto-expand on mount
+  useEffect(() => {
+    if (initialized.current) return;
     initialized.current = true;
+
     const rootId = newId();
     const rootPos = { x: 0, y: 0 };
-    const rootNode = {
+
+    setNodes([{
       id: rootId,
       type: 'topicNode',
       position: rootPos,
       data: {
         topic: rootTopic,
-        connection: null,
         emoji: '🕳️',
-        onExpand: () => expandNode(rootId, rootTopic, null, rootPos),
+        connection: null,
         loading: false,
         isRoot: true,
         expanded: false,
+        error: null,
+        onExpand: () => expandNode(rootId, rootTopic, null, rootPos),
       },
-    };
-    // Seed state synchronously before first render
-    nodes.push(rootNode);
-    // Auto-expand after mount
-    setTimeout(() => expandNode(rootId, rootTopic, null, rootPos), 50);
-  }
+    }]);
+
+    expandNode(rootId, rootTopic, null, rootPos);
+  }, [rootTopic, expandNode, newId, setNodes]);
 
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
@@ -149,18 +155,9 @@ function FlowCanvas({ rootTopic, onReset }) {
         nodesConnectable={false}
         deleteKeyCode={null}
       >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={28}
-          size={1}
-          color="#1a1a3a"
-        />
+        <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="#1a1a3a" />
         <Controls showInteractive={false} />
-        <MiniMap
-          nodeColor="#4f46e5"
-          maskColor="rgba(5,5,12,0.85)"
-          style={{ borderRadius: 10 }}
-        />
+        <MiniMap nodeColor="#4f46e5" maskColor="rgba(5,5,12,0.85)" style={{ borderRadius: 10 }} />
       </ReactFlow>
     </div>
   );
@@ -169,20 +166,17 @@ function FlowCanvas({ rootTopic, onReset }) {
 export default function App() {
   const [rootTopic, setRootTopic] = useState('');
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-
   const exampleRef = useRef(0);
 
   function pickExample() {
-    const ex = EXAMPLES[exampleRef.current % EXAMPLES.length];
+    setInput(EXAMPLES[exampleRef.current % EXAMPLES.length]);
     exampleRef.current++;
-    setInput(ex);
   }
 
   function start(e) {
     e?.preventDefault();
     const val = input.trim();
-    if (!val || loading) return;
+    if (!val) return;
     setRootTopic(val);
   }
 
