@@ -10,7 +10,6 @@ import ReactFlow, {
   BackgroundVariant,
   MarkerType,
 } from 'reactflow';
-import dagre from '@dagrejs/dagre';
 import 'reactflow/dist/style.css';
 import TopicNode from './components/TopicNode';
 
@@ -23,46 +22,62 @@ const EXAMPLES = [
   'competitive lockpicking', 'potato famine economics', 'cloud seeding', 'mirror superstitions',
   'Viking nail hygiene', 'the smell of rain', 'chess piece origins', 'laughing epidemics',
   'phantom islands', 'competitive dog grooming', 'the postal system', 'mud architecture',
-  'yawning contagion', 'tongue maps', 'competitive eating', 'forgotten programming languages',
+  'yawning contagion', 'tongue maps', 'forgotten programming languages',
   'bread riots', 'tulip mania', 'ice harvesting', 'competitive crossword puzzles',
   'the appendix', 'fermentation', 'sky burial', 'neon signs', 'dead languages',
-  'competitive marble racing', 'antimatter', 'Victorian mourning fashion', 'salt trade routes',
+  'antimatter', 'Victorian mourning fashion', 'salt trade routes', 'competitive marble racing',
 ];
 
-function randomExample() {
-  return EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)];
+// Color palette by depth level
+export const DEPTH_COLORS = [
+  '#a78bfa', // 0 - root: purple
+  '#818cf8', // 1 - indigo
+  '#38bdf8', // 2 - sky blue
+  '#34d399', // 3 - emerald
+  '#fbbf24', // 4 - amber
+  '#f472b6', // 5 - pink
+  '#fb923c', // 6 - orange
+];
+
+export function depthColor(depth) {
+  return DEPTH_COLORS[Math.min(depth, DEPTH_COLORS.length - 1)];
 }
 
-// Node dimensions — must be >= actual rendered size so dagre spaces correctly
-const NODE_WIDTH = 230;
-const NODE_HEIGHT = 250;
+const EXPAND_RADIUS = 310; // px from parent to children
+const SPREAD = Math.PI * 0.85; // 153° arc for children
 
-function buildEdge(sourceId, targetId) {
+function getChildPositions(parentPos, count, rootPos) {
+  const dx = parentPos.x - rootPos.x;
+  const dy = parentPos.y - rootPos.y;
+  const isRoot = Math.hypot(dx, dy) < 1;
+
+  // Point away from root; root fans in full circle
+  const baseAngle = isRoot ? -Math.PI / 2 : Math.atan2(dy, dx);
+  const totalSpread = isRoot ? Math.PI * 2 * 0.92 : SPREAD;
+  const half = totalSpread / 2;
+
+  return Array.from({ length: count }, (_, i) => {
+    const angle = count === 1
+      ? baseAngle
+      : baseAngle - half + (totalSpread / (count - 1)) * i;
+    return {
+      x: parentPos.x + Math.cos(angle) * EXPAND_RADIUS,
+      y: parentPos.y + Math.sin(angle) * EXPAND_RADIUS,
+    };
+  });
+}
+
+function buildEdge(sourceId, targetId, depth) {
+  const color = depthColor(depth);
   return {
     id: `e-${sourceId}-${targetId}`,
     source: sourceId,
     target: targetId,
-    type: 'smoothstep',
+    type: 'default',
     animated: true,
-    style: { stroke: '#4f46e5', strokeWidth: 1.5, opacity: 0.7 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#4f46e5' },
+    style: { stroke: color, strokeWidth: 1.5, opacity: 0.5 },
+    markerEnd: { type: MarkerType.ArrowClosed, color },
   };
-}
-
-function applyDagreLayout(nodes, edges) {
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: 'TB', nodesep: 50, ranksep: 80, marginx: 40, marginy: 40 });
-
-  nodes.forEach(n => g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT }));
-  edges.forEach(e => g.setEdge(e.source, e.target));
-
-  dagre.layout(g);
-
-  return nodes.map(n => {
-    const pos = g.node(n.id);
-    return { ...n, position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 } };
-  });
 }
 
 function FlowCanvas({ rootTopic, onReset }) {
@@ -71,11 +86,8 @@ function FlowCanvas({ rootTopic, onReset }) {
   const { fitView } = useReactFlow();
   const idRef = useRef(0);
   const initialized = useRef(false);
-  // Keep refs in sync so expandNode always sees latest state
   const nodesRef = useRef([]);
-  const edgesRef = useRef([]);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
-  useEffect(() => { edgesRef.current = edges; }, [edges]);
 
   const newId = useCallback(() => `n${++idRef.current}`, []);
 
@@ -94,14 +106,22 @@ function FlowCanvas({ rootTopic, onReset }) {
       if (json.error) throw new Error(json.error);
 
       const { subtopics } = json;
+      const current = nodesRef.current;
+      const parentNode = current.find(n => n.id === nodeId);
+      const rootNode = current.find(n => n.data.isRoot);
+      const parentDepth = parentNode?.data.depth ?? 0;
+      const parentPos = parentNode?.position ?? { x: 0, y: 0 };
+      const rootPos = rootNode?.position ?? { x: 0, y: 0 };
 
-      // Build new nodes (positions will be set by dagre, so use 0,0 placeholders)
-      const newNodes = subtopics.map((sub) => {
+      const positions = getChildPositions(parentPos, subtopics.length, rootPos);
+
+      const newNodes = subtopics.map((sub, i) => {
         const id = newId();
+        const depth = parentDepth + 1;
         return {
           id,
           type: 'topicNode',
-          position: { x: 0, y: 0 },
+          position: positions[i],
           data: {
             topic: sub.title,
             connection: sub.connection,
@@ -110,28 +130,22 @@ function FlowCanvas({ rootTopic, onReset }) {
             isRoot: false,
             expanded: false,
             error: null,
-            onExpand: () => expandNode(id, sub.title, topic, { x: 0, y: 0 }),
+            depth,
+            onExpand: () => expandNode(id, sub.title, topic, positions[i]),
           },
         };
       });
 
-      const newEdges = newNodes.map(n => buildEdge(nodeId, n.id));
+      const newEdges = newNodes.map(n => buildEdge(nodeId, n.id, parentDepth));
 
-      const currentNodes = nodesRef.current;
-      const currentEdges = edgesRef.current;
-
-      const updatedNodes = currentNodes.map(n =>
-        n.id === nodeId ? { ...n, data: { ...n.data, loading: false, expanded: true } } : n
-      );
-
-      const allNodes = [...updatedNodes, ...newNodes];
-      const allEdges = [...currentEdges, ...newEdges];
-
-      const layoutedNodes = applyDagreLayout(allNodes, allEdges);
-
-      setNodes(layoutedNodes);
-      setEdges(allEdges);
-      setTimeout(() => fitView({ duration: 700, padding: 0.12 }), 80);
+      setNodes(ns => [
+        ...ns.map(n =>
+          n.id === nodeId ? { ...n, data: { ...n.data, loading: false, expanded: true } } : n
+        ),
+        ...newNodes,
+      ]);
+      setEdges(es => [...es, ...newEdges]);
+      setTimeout(() => fitView({ duration: 700, padding: 0.1 }), 80);
     } catch (err) {
       console.error('Expand error:', err);
       setNodes(ns =>
@@ -147,7 +161,6 @@ function FlowCanvas({ rootTopic, onReset }) {
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-
     const rootId = newId();
     setNodes([{
       id: rootId,
@@ -161,10 +174,10 @@ function FlowCanvas({ rootTopic, onReset }) {
         isRoot: true,
         expanded: false,
         error: null,
+        depth: 0,
         onExpand: () => expandNode(rootId, rootTopic, null, { x: 0, y: 0 }),
       },
     }]);
-
     expandNode(rootId, rootTopic, null, { x: 0, y: 0 });
   }, [rootTopic, expandNode, newId, setNodes]);
 
@@ -174,7 +187,6 @@ function FlowCanvas({ rootTopic, onReset }) {
         <span className="flow-header-topic">🕳️ {rootTopic}</span>
         <button className="flow-header-reset" onClick={onReset}>← New topic</button>
       </div>
-
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -182,24 +194,29 @@ function FlowCanvas({ rootTopic, onReset }) {
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.12 }}
+        fitViewOptions={{ padding: 0.15 }}
         minZoom={0.05}
         maxZoom={2}
         nodesDraggable
         nodesConnectable={false}
         deleteKeyCode={null}
       >
-        <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="#1a1a3a" />
+        <Background variant={BackgroundVariant.Dots} gap={32} size={1} color="#1e1e3a" />
         <Controls showInteractive={false} />
-        <MiniMap nodeColor="#4f46e5" maskColor="rgba(5,5,12,0.85)" style={{ borderRadius: 10 }} />
+        <MiniMap nodeColor={n => depthColor(n.data?.depth ?? 0)} maskColor="rgba(5,5,12,0.88)" style={{ borderRadius: 10 }} />
       </ReactFlow>
     </div>
   );
 }
 
+function randomExample() {
+  return EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)];
+}
+
 export default function App() {
   const [rootTopic, setRootTopic] = useState('');
   const [input, setInput] = useState('');
+
   function pickExample() {
     let ex;
     do { ex = randomExample(); } while (ex === input);

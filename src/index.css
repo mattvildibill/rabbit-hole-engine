@@ -221,19 +221,13 @@ body {
 }
 
 .topic-node:hover {
-  border-color: rgba(99, 102, 241, 0.55);
   box-shadow:
-    0 0 22px rgba(99, 102, 241, 0.18),
+    0 0 22px color-mix(in srgb, var(--glow, #6366f1) 30%, transparent),
     0 4px 24px rgba(0, 0, 0, 0.5),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .topic-node.root-node {
-  border-color: rgba(139, 92, 246, 0.55);
-  box-shadow:
-    0 0 32px rgba(139, 92, 246, 0.25),
-    0 4px 24px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
   width: 220px;
 }
 
@@ -332,8 +326,8 @@ body {
 
 /* Pulse animation for root */
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 32px rgba(139, 92, 246, 0.25), 0 4px 24px rgba(0,0,0,0.5); }
-  50%       { box-shadow: 0 0 48px rgba(139, 92, 246, 0.4),  0 4px 24px rgba(0,0,0,0.5); }
+  0%, 100% { box-shadow: 0 0 32px color-mix(in srgb, var(--glow, #a78bfa) 28%, transparent), 0 4px 24px rgba(0,0,0,0.5); }
+  50%       { box-shadow: 0 0 52px color-mix(in srgb, var(--glow, #a78bfa) 45%, transparent), 0 4px 24px rgba(0,0,0,0.5); }
 }
 
 .topic-node.root-node {
