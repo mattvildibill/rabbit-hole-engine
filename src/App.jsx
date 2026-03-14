@@ -16,7 +16,22 @@ import TopicNode from './components/TopicNode';
 
 const nodeTypes = { topicNode: TopicNode };
 
-const EXAMPLES = ['octopus cognition', 'medieval dentistry', 'Soviet vending machines', 'bioluminescent fungi'];
+const EXAMPLES = [
+  'octopus cognition', 'medieval dentistry', 'Soviet vending machines', 'bioluminescent fungi',
+  'competitive eating history', 'abandoned theme parks', 'Byzantine bureaucracy', 'whale songs',
+  'the color blue in ancient languages', 'elevator music', 'left-handedness', 'cursed objects',
+  'competitive lockpicking', 'potato famine economics', 'cloud seeding', 'mirror superstitions',
+  'Viking nail hygiene', 'the smell of rain', 'chess piece origins', 'laughing epidemics',
+  'phantom islands', 'competitive dog grooming', 'the postal system', 'mud architecture',
+  'yawning contagion', 'tongue maps', 'competitive eating', 'forgotten programming languages',
+  'bread riots', 'tulip mania', 'ice harvesting', 'competitive crossword puzzles',
+  'the appendix', 'fermentation', 'sky burial', 'neon signs', 'dead languages',
+  'competitive marble racing', 'antimatter', 'Victorian mourning fashion', 'salt trade routes',
+];
+
+function randomExample() {
+  return EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)];
+}
 
 // Node dimensions — must be >= actual rendered size so dagre spaces correctly
 const NODE_WIDTH = 230;
@@ -185,11 +200,10 @@ function FlowCanvas({ rootTopic, onReset }) {
 export default function App() {
   const [rootTopic, setRootTopic] = useState('');
   const [input, setInput] = useState('');
-  const exampleRef = useRef(0);
-
   function pickExample() {
-    setInput(EXAMPLES[exampleRef.current % EXAMPLES.length]);
-    exampleRef.current++;
+    let ex;
+    do { ex = randomExample(); } while (ex === input);
+    setInput(ex);
   }
 
   function start(e) {
