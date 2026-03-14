@@ -10,14 +10,17 @@ import ReactFlow, {
   BackgroundVariant,
   MarkerType,
 } from 'reactflow';
+import dagre from '@dagrejs/dagre';
 import 'reactflow/dist/style.css';
 import TopicNode from './components/TopicNode';
 
 const nodeTypes = { topicNode: TopicNode };
 
 const EXAMPLES = ['octopus cognition', 'medieval dentistry', 'Soviet vending machines', 'bioluminescent fungi'];
-const CHILD_SPACING = 250;
-const CHILD_Y_OFFSET = 210;
+
+// Node dimensions must match the CSS
+const NODE_WIDTH = 220;
+const NODE_HEIGHT = 160;
 
 function buildEdge(sourceId, targetId) {
   return {
@@ -31,13 +34,20 @@ function buildEdge(sourceId, targetId) {
   };
 }
 
-function childPositions(parentX, parentY, count) {
-  const totalWidth = (count - 1) * CHILD_SPACING;
-  const startX = parentX - totalWidth / 2;
-  return Array.from({ length: count }, (_, i) => ({
-    x: startX + i * CHILD_SPACING,
-    y: parentY + CHILD_Y_OFFSET,
-  }));
+function applyDagreLayout(nodes, edges) {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: 'TB', nodesep: 60, ranksep: 90, marginx: 40, marginy: 40 });
+
+  nodes.forEach(n => g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT }));
+  edges.forEach(e => g.setEdge(e.source, e.target));
+
+  dagre.layout(g);
+
+  return nodes.map(n => {
+    const pos = g.node(n.id);
+    return { ...n, position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 } };
+  });
 }
 
 function FlowCanvas({ rootTopic, onReset }) {
@@ -46,10 +56,15 @@ function FlowCanvas({ rootTopic, onReset }) {
   const { fitView } = useReactFlow();
   const idRef = useRef(0);
   const initialized = useRef(false);
+  // Keep refs in sync so expandNode always sees latest state
+  const nodesRef = useRef([]);
+  const edgesRef = useRef([]);
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { edgesRef.current = edges; }, [edges]);
 
   const newId = useCallback(() => `n${++idRef.current}`, []);
 
-  const expandNode = useCallback(async (nodeId, topic, parentTopic, pos) => {
+  const expandNode = useCallback(async (nodeId, topic, parentTopic, _pos) => {
     setNodes(ns =>
       ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, loading: true, error: null } } : n)
     );
@@ -64,14 +79,14 @@ function FlowCanvas({ rootTopic, onReset }) {
       if (json.error) throw new Error(json.error);
 
       const { subtopics } = json;
-      const positions = childPositions(pos.x, pos.y, subtopics.length);
 
-      const newNodes = subtopics.map((sub, i) => {
+      // Build new nodes (positions will be set by dagre, so use 0,0 placeholders)
+      const newNodes = subtopics.map((sub) => {
         const id = newId();
         return {
           id,
           type: 'topicNode',
-          position: positions[i],
+          position: { x: 0, y: 0 },
           data: {
             topic: sub.title,
             connection: sub.connection,
@@ -80,21 +95,28 @@ function FlowCanvas({ rootTopic, onReset }) {
             isRoot: false,
             expanded: false,
             error: null,
-            onExpand: () => expandNode(id, sub.title, topic, positions[i]),
+            onExpand: () => expandNode(id, sub.title, topic, { x: 0, y: 0 }),
           },
         };
       });
 
       const newEdges = newNodes.map(n => buildEdge(nodeId, n.id));
 
-      setNodes(ns => [
-        ...ns.map(n =>
-          n.id === nodeId ? { ...n, data: { ...n.data, loading: false, expanded: true } } : n
-        ),
-        ...newNodes,
-      ]);
-      setEdges(es => [...es, ...newEdges]);
-      setTimeout(() => fitView({ duration: 600, padding: 0.15 }), 80);
+      const currentNodes = nodesRef.current;
+      const currentEdges = edgesRef.current;
+
+      const updatedNodes = currentNodes.map(n =>
+        n.id === nodeId ? { ...n, data: { ...n.data, loading: false, expanded: true } } : n
+      );
+
+      const allNodes = [...updatedNodes, ...newNodes];
+      const allEdges = [...currentEdges, ...newEdges];
+
+      const layoutedNodes = applyDagreLayout(allNodes, allEdges);
+
+      setNodes(layoutedNodes);
+      setEdges(allEdges);
+      setTimeout(() => fitView({ duration: 700, padding: 0.12 }), 80);
     } catch (err) {
       console.error('Expand error:', err);
       setNodes(ns =>
@@ -107,18 +129,15 @@ function FlowCanvas({ rootTopic, onReset }) {
     }
   }, [setNodes, setEdges, fitView, newId]);
 
-  // Initialize root node and auto-expand on mount
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
 
     const rootId = newId();
-    const rootPos = { x: 0, y: 0 };
-
     setNodes([{
       id: rootId,
       type: 'topicNode',
-      position: rootPos,
+      position: { x: 0, y: 0 },
       data: {
         topic: rootTopic,
         emoji: '🕳️',
@@ -127,11 +146,11 @@ function FlowCanvas({ rootTopic, onReset }) {
         isRoot: true,
         expanded: false,
         error: null,
-        onExpand: () => expandNode(rootId, rootTopic, null, rootPos),
+        onExpand: () => expandNode(rootId, rootTopic, null, { x: 0, y: 0 }),
       },
     }]);
 
-    expandNode(rootId, rootTopic, null, rootPos);
+    expandNode(rootId, rootTopic, null, { x: 0, y: 0 });
   }, [rootTopic, expandNode, newId, setNodes]);
 
   return (
@@ -148,8 +167,8 @@ function FlowCanvas({ rootTopic, onReset }) {
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.3 }}
-        minZoom={0.1}
+        fitViewOptions={{ padding: 0.12 }}
+        minZoom={0.05}
         maxZoom={2}
         nodesDraggable
         nodesConnectable={false}
