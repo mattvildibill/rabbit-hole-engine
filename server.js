@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -8,7 +9,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
 
-const client = new Anthropic();
+const proxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY;
+const client = new Anthropic(
+  proxyUrl ? { httpAgent: new HttpsProxyAgent(proxyUrl) } : {}
+);
 
 app.post('/api/expand', async (req, res) => {
   const { topic, parentTopic } = req.body;
